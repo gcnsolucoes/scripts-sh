@@ -215,11 +215,25 @@ if [[ "$OS_FAMILY" == "debian" ]]; then
       *) die "Debian ${VERSION_ID:-?} não suportado automaticamente para Zabbix ${ZABBIX_VER}." ;;
     esac
 
-    DEB_REPO_DIR="debian"
-    [[ "$ARCH" == "arm64" ]] && DEB_REPO_DIR="debian-arm64"
-
-    ZBX_REPO_PKG="zabbix-release_latest_${ZABBIX_VER}+debian${VERSION_ID}_all.deb"
-    ZBX_REPO_URL="https://repo.zabbix.com/zabbix/${ZABBIX_VER}/${DEB_REPO_DIR}/pool/main/z/zabbix-release/${ZBX_REPO_PKG}"
+    # Zabbix 7.2+ no Debian usa repo em 7.x/stable/debian (sem pacote .deb de release)
+    case "${ZABBIX_VER}" in
+      7.2|7.3|7.4)
+        ZBX_DEB_USE_STABLE_REPO="1"
+        case "${VERSION_ID:-}" in
+          11) ZBX_DEB_DIST="bullseye" ;;
+          12) ZBX_DEB_DIST="bookworm" ;;
+          13) ZBX_DEB_DIST="trixie" ;;
+          *) ZBX_DEB_DIST="bookworm" ;;
+        esac
+        ZBX_REPO_URL=""   # será configurado manualmente
+        ;;
+      *)
+        DEB_REPO_DIR="debian"
+        [[ "$ARCH" == "arm64" ]] && DEB_REPO_DIR="debian-arm64"
+        ZBX_REPO_PKG="zabbix-release_latest_${ZABBIX_VER}+debian${VERSION_ID}_all.deb"
+        ZBX_REPO_URL="https://repo.zabbix.com/zabbix/${ZABBIX_VER}/${DEB_REPO_DIR}/pool/main/z/zabbix-release/${ZBX_REPO_PKG}"
+        ;;
+    esac
   fi
 else
   case "${VERSION_ID:-}" in
@@ -236,14 +250,13 @@ else
 fi
 
 # -----------------------------
-# 6) Baixar e instalar repo
+# 6) Adicionar repositório Zabbix
 # -----------------------------
 TMP_DIR="$(mktemp -d)"
 cd "$TMP_DIR"
 
-log "$([[ "$MODE" == "update" ]] && echo "Atualizando" || echo "Baixando") pacote do repositório Zabbix (v${ZABBIX_VER})..."
-
 if [[ "$OS_FAMILY" == "rhel" ]]; then
+  log "$([[ "$MODE" == "update" ]] && echo "Atualizando" || echo "Baixando") pacote do repositório Zabbix (v${ZABBIX_VER})..."
   log "Tentando [1/2]: $ZBX_REPO_URL_PRIMARY"
   if download_file "$ZBX_REPO_URL_PRIMARY" "$ZBX_REPO_PKG_PRIMARY"; then
     ZBX_REPO_PKG="$ZBX_REPO_PKG_PRIMARY"
@@ -252,15 +265,28 @@ if [[ "$OS_FAMILY" == "rhel" ]]; then
     download_file "$ZBX_REPO_URL_FALLBACK" "$ZBX_REPO_PKG_FALLBACK" || die "Falha ao baixar repo Zabbix (RHEL)."
     ZBX_REPO_PKG="$ZBX_REPO_PKG_FALLBACK"
   fi
-else
-  download_file "$ZBX_REPO_URL" "$ZBX_REPO_PKG" || die "Falha ao baixar repo Zabbix. URL: $ZBX_REPO_URL"
-fi
-
-log "$INSTALL_VERB pacote de repositório do Zabbix: $ZBX_REPO_PKG"
-if [[ "$OS_FAMILY" == "debian" ]]; then
-  dpkg -i "$ZBX_REPO_PKG" >/dev/null
-else
+  log "$INSTALL_VERB pacote de repositório do Zabbix: $ZBX_REPO_PKG"
   rpm -Uvh "$ZBX_REPO_PKG" >/dev/null
+elif [[ -n "${ZBX_DEB_USE_STABLE_REPO:-}" ]]; then
+  # Debian 7.2/7.3/7.4: repo em 7.x/stable/debian (sem .deb de release)
+  log "Configurando repositório Zabbix ${ZABBIX_VER} (stable) para Debian..."
+  ZBX_KEYRING="/usr/share/keyrings/zabbix-official-repo.gpg"
+  ZBX_LIST="/etc/apt/sources.list.d/zabbix.list"
+  ZBX_REPO_BASE="https://repo.zabbix.com/zabbix/${ZABBIX_VER}/stable/debian"
+  if command_exists wget; then
+    wget -q "https://repo.zabbix.com/zabbix-official-repo.key" -O - | gpg --dearmor -o "$ZBX_KEYRING" 2>/dev/null || true
+  else
+    curl -fsSL "https://repo.zabbix.com/zabbix-official-repo.key" | gpg --dearmor -o "$ZBX_KEYRING" 2>/dev/null || true
+  fi
+  [[ -f "$ZBX_KEYRING" ]] || die "Falha ao baixar chave GPG do Zabbix."
+  echo "deb [signed-by=$ZBX_KEYRING] ${ZBX_REPO_BASE} ${ZBX_DEB_DIST} main" > "$ZBX_LIST"
+  ZBX_REPO_URL="${ZBX_REPO_BASE} ${ZBX_DEB_DIST} main"
+  log "Repositório adicionado: $ZBX_LIST"
+else
+  log "$([[ "$MODE" == "update" ]] && echo "Atualizando" || echo "Baixando") pacote do repositório Zabbix (v${ZABBIX_VER})..."
+  download_file "$ZBX_REPO_URL" "$ZBX_REPO_PKG" || die "Falha ao baixar repo Zabbix. URL: $ZBX_REPO_URL"
+  log "$INSTALL_VERB pacote de repositório do Zabbix: $ZBX_REPO_PKG"
+  dpkg -i "$ZBX_REPO_PKG" >/dev/null
 fi
 
 log "Atualizando cache de pacotes após adicionar repo..."
