@@ -37,6 +37,7 @@ MODE="install"   # install | update
 ZBX_PLUGINS=(
   "zabbix-agent2-plugin-mongodb"
   "zabbix-agent2-plugin-mssql"
+  "zabbix-agent2-plugin-mysql"
   "zabbix-agent2-plugin-postgresql"
 )
 
