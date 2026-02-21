@@ -28,7 +28,7 @@ trap cleanup EXIT
 
 require_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Execute como root (sudo)."; }
 
-DEFAULT_ZABBIX_SERVER="0.0.0.0"
+DEFAULT_ZABBIX_SERVER="monitor.gcn.srv.br"
 SERVER_IP="$DEFAULT_ZABBIX_SERVER"
 ZABBIX_VER="7.4"
 MODE="install"   # install | update
