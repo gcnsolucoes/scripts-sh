@@ -28,7 +28,7 @@ require_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Execute como root (sudo
 
 DEFAULT_ZABBIX_SERVER="0.0.0.0"
 SERVER_IP="$DEFAULT_ZABBIX_SERVER"
-ZABBIX_VER="7.0"
+ZABBIX_VER="7.4"
 
 # Plugins desejados (instala individualmente e não falha o script se algum não existir)
 ZBX_PLUGINS=(
