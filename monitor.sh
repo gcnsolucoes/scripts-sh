@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # --------------------------------------------------------------
+# Modos: instalação do zero ou atualização (-u)
+#
 # Instala e configura:
 # - Zabbix Agent 2 (Ubuntu/Debian e RHEL-like)
 # - Repo Zabbix conforme ARQUITETURA:
@@ -29,6 +31,7 @@ require_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Execute como root (sudo
 DEFAULT_ZABBIX_SERVER="0.0.0.0"
 SERVER_IP="$DEFAULT_ZABBIX_SERVER"
 ZABBIX_VER="7.4"
+MODE="install"   # install | update
 
 # Plugins desejados (instala individualmente e não falha o script se algum não existir)
 ZBX_PLUGINS=(
@@ -39,19 +42,24 @@ ZBX_PLUGINS=(
 
 usage() {
   cat <<EOF
-Uso: $0 [-s <ip_ou_hostname_zabbix>] [-v <zabbix_version>]
+Uso: $0 [-s <ip_ou_hostname_zabbix>] [-v <zabbix_version>] [-u]
 
 Opções:
   -s    IP/hostname do servidor Zabbix (padrão: ${DEFAULT_ZABBIX_SERVER})
   -v    Versão do Zabbix (padrão: ${ZABBIX_VER})
+  -u    Modo atualização: atualiza repo, pacotes e scripts (exige agente já instalado)
   -h    Ajuda
+
+Sem -u: instalação do zero. Se o agente já estiver instalado, o script pode perguntar
+       se deseja apenas atualizar tudo em vez de reinstalar.
 EOF
 }
 
-while getopts ":s:v:h" opt; do
+while getopts ":s:v:uh" opt; do
   case "$opt" in
     s) SERVER_IP="$OPTARG" ;;
     v) ZABBIX_VER="$OPTARG" ;;
+    u) MODE="update" ;;
     h) usage; exit 0 ;;
     \?) die "Opção inválida: -$OPTARG (use -h)" ;;
     :) die "A opção -$OPTARG exige um argumento." ;;
@@ -117,6 +125,40 @@ if [[ "$SERVER_IP" == "$DEFAULT_ZABBIX_SERVER" ]]; then
   [[ -n "${USER_INPUT:-}" ]] && SERVER_IP="$USER_INPUT"
 fi
 log "Servidor Zabbix: $SERVER_IP"
+
+# -----------------------------
+# 3.1) Modo: instalação vs atualização
+# -----------------------------
+is_zabbix_installed() {
+  if [[ "$OS_FAMILY" == "debian" ]]; then
+    dpkg -l zabbix-agent2 2>/dev/null | grep -q '^ii'
+  else
+    rpm -q zabbix-agent2 &>/dev/null
+  fi
+}
+
+if [[ "$MODE" == "update" ]]; then
+  if ! is_zabbix_installed; then
+    die "Zabbix Agent 2 não está instalado. Execute o script sem -u para instalação do zero."
+  fi
+  log "Modo: ATUALIZAÇÃO (repo, pacotes e scripts serão atualizados)"
+elif is_zabbix_installed; then
+  log "Zabbix Agent 2 já está instalado."
+  read -rp "Deseja [1] Atualizar tudo (repo, pacotes, scripts) ou [2] Instalação do zero (reinstalar)? [1/2]: " choice || true
+  if [[ "${choice:-}" == "2" ]]; then
+    MODE="install"
+    log "Modo: instalação do zero"
+  else
+    MODE="update"
+    log "Modo: ATUALIZAÇÃO"
+  fi
+fi
+
+if [[ "$MODE" == "update" ]]; then
+  INSTALL_VERB="Atualizando"
+else
+  INSTALL_VERB="Instalando"
+fi
 
 # -----------------------------
 # 4) Pré-requisitos
@@ -199,7 +241,7 @@ fi
 TMP_DIR="$(mktemp -d)"
 cd "$TMP_DIR"
 
-log "Baixando pacote do repositório Zabbix (v${ZABBIX_VER})..."
+log "$([[ "$MODE" == "update" ]] && echo "Atualizando" || echo "Baixando") pacote do repositório Zabbix (v${ZABBIX_VER})..."
 
 if [[ "$OS_FAMILY" == "rhel" ]]; then
   log "Tentando [1/2]: $ZBX_REPO_URL_PRIMARY"
@@ -214,7 +256,7 @@ else
   download_file "$ZBX_REPO_URL" "$ZBX_REPO_PKG" || die "Falha ao baixar repo Zabbix. URL: $ZBX_REPO_URL"
 fi
 
-log "Instalando pacote de repositório do Zabbix: $ZBX_REPO_PKG"
+log "$INSTALL_VERB pacote de repositório do Zabbix: $ZBX_REPO_PKG"
 if [[ "$OS_FAMILY" == "debian" ]]; then
   dpkg -i "$ZBX_REPO_PKG" >/dev/null
 else
@@ -225,12 +267,12 @@ log "Atualizando cache de pacotes após adicionar repo..."
 eval "$PKG_UPDATE"
 
 # -----------------------------
-# 7) Instalar Zabbix Agent 2 + plugins desejados
+# 7) Instalar/atualizar Zabbix Agent 2 + plugins desejados
 # -----------------------------
-log "Instalando Zabbix Agent 2..."
-eval "$PKG_INSTALL zabbix-agent2" || die "Não consegui instalar zabbix-agent2. (Repo/arch não compatível?)"
+log "$INSTALL_VERB Zabbix Agent 2..."
+eval "$PKG_INSTALL zabbix-agent2" || die "Não consegui instalar/atualizar zabbix-agent2. (Repo/arch não compatível?)"
 
-log "Instalando plugins desejados..."
+log "$INSTALL_VERB plugins desejados..."
 for p in "${ZBX_PLUGINS[@]}"; do
   if eval "$PKG_INSTALL $p"; then
     log "Plugin instalado: $p"
@@ -270,7 +312,7 @@ mkdir -p /etc/zabbix/zabbix_agent2.d/plugins.d/
 # -----------------------------
 # 9) Python + venv + scripts
 # -----------------------------
-log "Instalando Python 3 e venv..."
+log "$([[ "$MODE" == "update" ]] && echo "Garantindo" || echo "Instalando") Python 3 e venv..."
 if [[ "$OS_FAMILY" == "debian" ]]; then
   eval "$PKG_INSTALL python3 python3-venv"
 else
@@ -279,13 +321,13 @@ else
 fi
 
 VENV_DIR="/usr/local/bin/ping_venv"
-log "Criando/atualizando venv em: $VENV_DIR"
+log "$([[ "$MODE" == "update" ]] && echo "Atualizando" || echo "Criando") venv em: $VENV_DIR"
 python3 -m venv "$VENV_DIR"
 
 PINGA="/usr/local/bin/pinga.py"
 LOSS="/usr/local/bin/packet_loss.py"
 
-log "Criando $PINGA (latência)"
+log "$([[ "$MODE" == "update" ]] && echo "Atualizando" || echo "Criando") $PINGA (latência)"
 cat <<'EOF' > "$PINGA"
 #!/usr/local/bin/ping_venv/bin/python3
 import subprocess
@@ -315,7 +357,7 @@ if __name__ == "__main__":
         ping(sys.argv[1])
 EOF
 
-log "Criando $LOSS (perda de pacotes)"
+log "$([[ "$MODE" == "update" ]] && echo "Atualizando" || echo "Criando") $LOSS (perda de pacotes)"
 cat <<'EOF' > "$LOSS"
 #!/usr/local/bin/ping_venv/bin/python3
 import subprocess
@@ -345,7 +387,7 @@ EOF
 chmod 0755 "$PINGA" "$LOSS"
 
 ZBX_CUSTOM_CONF="/etc/zabbix/zabbix_agent2.d/plugins.d/pinga.conf"
-log "Criando UserParameters: $ZBX_CUSTOM_CONF"
+log "$([[ "$MODE" == "update" ]] && echo "Atualizando" || echo "Criando") UserParameters: $ZBX_CUSTOM_CONF"
 cat <<EOF > "$ZBX_CUSTOM_CONF"
 UserParameter=pinga.custom[*],${PINGA} \$1
 UserParameter=packet.loss[*],${LOSS} \$1
@@ -366,7 +408,7 @@ else
 fi
 
 log "------------------------------------------------------------"
-log "Concluído!"
+log "$([[ "$MODE" == "update" ]] && echo "Atualização concluída!" || echo "Concluído!")"
 log " -> Zabbix: v${ZABBIX_VER}"
 log " -> Servidor Zabbix: $SERVER_IP"
 log " -> Sistema: ${PRETTY_NAME:-?}"
