@@ -204,11 +204,26 @@ if [[ "$OS_FAMILY" == "debian" ]]; then
       *) die "Ubuntu ${VERSION_ID:-?} não suportado automaticamente para Zabbix ${ZABBIX_VER}." ;;
     esac
 
-    UB_REPO_DIR="ubuntu"
-    [[ "$ARCH" == "arm64" ]] && UB_REPO_DIR="ubuntu-arm64"
-
-    ZBX_REPO_PKG="zabbix-release_latest_${ZABBIX_VER}+ubuntu${VERSION_ID}_all.deb"
-    ZBX_REPO_URL="https://repo.zabbix.com/zabbix/${ZABBIX_VER}/${UB_REPO_DIR}/pool/main/z/zabbix-release/${ZBX_REPO_PKG}"
+    # Zabbix 7.2+ no Ubuntu também usa repo stable (sem pacote .deb de release)
+    case "${ZABBIX_VER}" in
+      7.2|7.3|7.4)
+        ZBX_DEB_USE_STABLE_REPO="1"
+        ZBX_DEB_REPO_FLAVOR="ubuntu"
+        case "${VERSION_ID:-}" in
+          "20.04") ZBX_DEB_DIST="focal" ;;
+          "22.04") ZBX_DEB_DIST="jammy" ;;
+          "24.04") ZBX_DEB_DIST="noble" ;;
+          *) ZBX_DEB_DIST="noble" ;;
+        esac
+        ZBX_REPO_URL=""
+        ;;
+      *)
+        UB_REPO_DIR="ubuntu"
+        [[ "$ARCH" == "arm64" ]] && UB_REPO_DIR="ubuntu-arm64"
+        ZBX_REPO_PKG="zabbix-release_latest_${ZABBIX_VER}+ubuntu${VERSION_ID}_all.deb"
+        ZBX_REPO_URL="https://repo.zabbix.com/zabbix/${ZABBIX_VER}/${UB_REPO_DIR}/pool/main/z/zabbix-release/${ZBX_REPO_PKG}"
+        ;;
+    esac
   else
     # Debian puro (ID=debian)
     case "${VERSION_ID:-}" in
@@ -220,13 +235,14 @@ if [[ "$OS_FAMILY" == "debian" ]]; then
     case "${ZABBIX_VER}" in
       7.2|7.3|7.4)
         ZBX_DEB_USE_STABLE_REPO="1"
+        ZBX_DEB_REPO_FLAVOR="debian"
         case "${VERSION_ID:-}" in
           11) ZBX_DEB_DIST="bullseye" ;;
           12) ZBX_DEB_DIST="bookworm" ;;
           13) ZBX_DEB_DIST="trixie" ;;
           *) ZBX_DEB_DIST="bookworm" ;;
         esac
-        ZBX_REPO_URL=""   # será configurado manualmente
+        ZBX_REPO_URL=""
         ;;
       *)
         DEB_REPO_DIR="debian"
@@ -269,11 +285,11 @@ if [[ "$OS_FAMILY" == "rhel" ]]; then
   log "$INSTALL_VERB pacote de repositório do Zabbix: $ZBX_REPO_PKG"
   rpm -Uvh "$ZBX_REPO_PKG" >/dev/null
 elif [[ -n "${ZBX_DEB_USE_STABLE_REPO:-}" ]]; then
-  # Debian 7.2/7.3/7.4: repo em 7.x/stable/debian (sem .deb de release)
-  log "Configurando repositório Zabbix ${ZABBIX_VER} (stable) para Debian..."
+  # Debian/Ubuntu 7.2/7.3/7.4: repo em 7.x/stable/<debian|ubuntu> (sem .deb de release)
+  log "Configurando repositório Zabbix ${ZABBIX_VER} (stable) para ${ZBX_DEB_REPO_FLAVOR:-debian}..."
   ZBX_KEYRING="/usr/share/keyrings/zabbix-official-repo.gpg"
   ZBX_LIST="/etc/apt/sources.list.d/zabbix.list"
-  ZBX_REPO_BASE="https://repo.zabbix.com/zabbix/${ZABBIX_VER}/stable/debian"
+  ZBX_REPO_BASE="https://repo.zabbix.com/zabbix/${ZABBIX_VER}/stable/${ZBX_DEB_REPO_FLAVOR:-debian}"
   if command_exists wget; then
     wget -q "https://repo.zabbix.com/zabbix-official-repo.key" -O - | gpg --dearmor -o "$ZBX_KEYRING" 2>/dev/null || true
   else
