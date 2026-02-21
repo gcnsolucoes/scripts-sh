@@ -68,7 +68,7 @@ require_root
 source /etc/os-release
 
 OS_FAMILY=""
-if [[ "${ID:-}" == "ubuntu" || "${ID_LIKE:-}" == *"debian"* ]]; then
+if [[ "${ID:-}" == "ubuntu" || "${ID:-}" == "debian" || "${ID_LIKE:-}" == *"debian"* ]]; then
   OS_FAMILY="debian"
 elif [[ "${ID:-}" == "almalinux" || "${ID:-}" == "rocky" || "${ID:-}" == "cloudlinux" || "${ID_LIKE:-}" == *"rhel"* ]]; then
   OS_FAMILY="rhel"
@@ -167,7 +167,17 @@ if [[ "$OS_FAMILY" == "debian" ]]; then
     ZBX_REPO_PKG="zabbix-release_latest_${ZABBIX_VER}+ubuntu${VERSION_ID}_all.deb"
     ZBX_REPO_URL="https://repo.zabbix.com/zabbix/${ZABBIX_VER}/${UB_REPO_DIR}/pool/main/z/zabbix-release/${ZBX_REPO_PKG}"
   else
-    die "Distribuição Debian detectada (não Ubuntu). Se quiser, eu adapto para debian/debian-arm64."
+    # Debian puro (ID=debian)
+    case "${VERSION_ID:-}" in
+      11|12|13) ;;
+      *) die "Debian ${VERSION_ID:-?} não suportado automaticamente para Zabbix ${ZABBIX_VER}." ;;
+    esac
+
+    DEB_REPO_DIR="debian"
+    [[ "$ARCH" == "arm64" ]] && DEB_REPO_DIR="debian-arm64"
+
+    ZBX_REPO_PKG="zabbix-release_latest_${ZABBIX_VER}+debian${VERSION_ID}_all.deb"
+    ZBX_REPO_URL="https://repo.zabbix.com/zabbix/${ZABBIX_VER}/${DEB_REPO_DIR}/pool/main/z/zabbix-release/${ZBX_REPO_PKG}"
   fi
 else
   case "${VERSION_ID:-}" in
