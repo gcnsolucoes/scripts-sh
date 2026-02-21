@@ -294,10 +294,10 @@ set_conf_kv() {
   # Escapar valor para sed: \ e & (evita quebra no replacement)
   local val_escaped="${value//\\/\\\\}"
   val_escaped="${val_escaped//&/\\&}"
-
-  if grep -qE "^[#[:space:]]*${key}=" "$file"; then
-    # Substituir a linha inteira (igual ao script antigo) - evita duplicar linha
-    sed -i -E "s|^[#[:space:]]*${key}=.*|${key}=${val_escaped}|g" "$file"
+  # Só linhas ativas (sem # no início): evita substituir comentários e evita
+  # que "Server=" pegue "ServerActive=" (exige key= no início após espaços)
+  if grep -qE "^[[:space:]]*${key}=" "$file"; then
+    sed -i -E "s|^([[:space:]]*)${key}=.*|\1${key}=${val_escaped}|" "$file"
   else
     echo "${key}=${value}" >> "$file"
   fi
